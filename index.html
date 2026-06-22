@@ -906,17 +906,19 @@ const setupSections = [
     b("mandatory", "Mandatory?"), b("confirmed", "Confirmed?"), b("paid", "Paid?"), t("notes", "Notes")
   ] },
   { key: "fds", label: "FDs", hint: "Fixed deposits, maturities, and FD-backed overdrafts.", title: "name", fields: [
-    f("name", "FD Name"), f("bank", "Bank"), n("principal", "Principal Amount"), n("currentValue", "Current Value"),
+    f("name", "FD Name"), f("bank", "Bank"), n("principal", "Principal Amount"), n("currentValue", "Current Value"), d("valueDate", "Current Value Date"),
     n("interestRate", "Interest Rate %"), d("startDate", "Start Date"), d("maturityDate", "Maturity Date"), n("maturityAmount", "Maturity Amount"),
+    b("useManualOverride", "Use Manual Override?"), n("manualOverrideValue", "Manual Override Value"), d("manualOverrideDate", "Manual Override Date"),
     b("autoRenew", "Auto-renew?"), b("linkedToOd", "Linked to OD?"), n("odLimit", "OD Limit Against FD"),
     r("odAccountId", "OD Account Credited To", "accounts"), n("odInterestRate", "OD Interest Rate %"), n("odUsed", "OD Used"),
     b("prematureBreak", "Premature Break Allowed?"), s("purpose", "Purpose Tag", ["Emergency", "Wedding", "Dance", "General", "Other"]), t("notes", "Notes")
   ] },
   { key: "rds", label: "RDs", hint: "Recurring deposits, installments, top-ups, and revised maturity estimates.", title: "name", fields: [
     f("name", "RD Name"), f("bank", "Bank"), n("monthlyInstallment", "Monthly Installment"), d("startDate", "Start Date"), d("endDate", "End Date"),
-    n("plannedMaturity", "Planned Maturity Amount"), n("currentValue", "Current Value"), n("interestRate", "Interest Rate %"),
+    n("plannedMaturity", "Planned Maturity Amount"), n("currentValue", "Current Value"), d("valueDate", "Current Value Date"), n("interestRate", "Interest Rate %"),
     n("installmentDay", "Installment Date each month"), r("sourceAccountId", "Source Account", "accounts"), b("allowsTopups", "Allows Top-ups?"),
     n("topupAmount", "Regular Top-up Amount"), n("topupDay", "Top-up Date each month"), n("revisedMaturity", "Revised Expected Maturity"),
+    b("useManualOverride", "Use Manual Override?"), n("manualOverrideValue", "Manual Override Value"), d("manualOverrideDate", "Manual Override Date"),
     s("purpose", "Purpose Tag", ["Emergency", "Wedding", "Dance", "General", "Other"]), t("notes", "Notes")
   ] },
   { key: "investments", label: "Investments", hint: "Gold plans, SIPs, mutual funds, stocks, chits, or other assets.", title: "name", fields: [
@@ -1030,6 +1032,10 @@ function dateInMonth(month, day = 1) {
   return `${year}-${String(index).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
 }
 
+function monthEndDate(month) {
+  return dateInMonth(month, monthBounds(month).days);
+}
+
 function sameMonth(date, month) {
   return Boolean(date) && date.slice(0, 7) === month;
 }
@@ -1071,6 +1077,10 @@ function monthRange(fromMonth, toMonth) {
     months.push(month);
   }
   return months;
+}
+
+function selectedAsOfDate(month = currentMonth()) {
+  return monthEndDate(month);
 }
 
 function accountById(accountId) {
@@ -1129,18 +1139,66 @@ function accountStats() {
   return { realCash, availableCash, unusedOd, liquidCash };
 }
 
-function assetStats() {
-  const fds = state.fds.reduce((sum, item) => sum + num(item.currentValue || item.principal), 0);
-  const rds = state.rds.reduce((sum, item) => sum + num(item.currentValue), 0);
+function assetStats(month = currentMonth()) {
+  const asOfDate = selectedAsOfDate(month);
+  const fds = state.fds.reduce((sum, item) => sum + fdValueAsOf(item, asOfDate), 0);
+  const rds = state.rds.reduce((sum, item) => sum + rdValueAsOf(item, asOfDate), 0);
   const investments = state.investments.reduce((sum, item) => sum + num(item.currentValue), 0);
   return { fds, rds, investments, locked: fds + rds + investments };
 }
 
+function fdValueAsOf(item, asOfDate) {
+  if (item.useManualOverride && item.manualOverrideDate && item.manualOverrideDate <= asOfDate) {
+    return num(item.manualOverrideValue);
+  }
+  if (!item.autoRenew && item.maturityDate && item.maturityDate <= asOfDate) {
+    return num(item.maturityAmount || item.currentValue || item.principal);
+  }
+  return num(item.currentValue || item.principal);
+}
+
+function rdValueAsOf(item, asOfDate) {
+  if (!asOfDate) return num(item.currentValue);
+  if (item.endDate && item.endDate <= asOfDate) {
+    return num(item.revisedMaturity || item.plannedMaturity || item.currentValue);
+  }
+
+  const baseDate = item.useManualOverride && item.manualOverrideDate
+    ? item.manualOverrideDate
+    : item.valueDate || item.startDate || todayValue();
+  let value = item.useManualOverride && item.manualOverrideDate
+    ? num(item.manualOverrideValue)
+    : num(item.currentValue);
+
+  if (asOfDate <= baseDate) return value;
+
+  monthRange(baseDate.slice(0, 7), asOfDate.slice(0, 7)).forEach((month) => {
+    if (!isBetweenMonth(item, month)) return;
+    const installmentDate = dateInMonth(month, item.installmentDay);
+    if (installmentDate > baseDate && installmentDate <= asOfDate) {
+      value += num(item.monthlyInstallment);
+    }
+    if (num(item.topupAmount) > 0) {
+      const topupDate = dateInMonth(month, item.topupDay || item.installmentDay);
+      if (topupDate > baseDate && topupDate <= asOfDate) {
+        value += num(item.topupAmount);
+      }
+    }
+  });
+
+  return value;
+}
+
 function liabilityStats() {
-  const odUsed = state.accounts.reduce((sum, item) => sum + num(item.odUsed), 0) + state.fds.reduce((sum, item) => sum + num(item.odUsed), 0);
+  const odUsedInAccounts = state.accounts.reduce((sum, item) => sum + num(item.odUsed), 0);
+  const odUsedOnFds = state.fds.reduce((sum, item) => sum + num(item.odUsed), 0);
+  const negativeAccountBalances = state.accounts.reduce((sum, item) => sum + Math.abs(Math.min(0, num(item.actualBalance))), 0);
+  const odAlreadyInAccountBalance = Math.min(odUsedInAccounts + odUsedOnFds, negativeAccountBalances);
+  const odExtraLiability = Math.max(0, odUsedInAccounts + odUsedOnFds - odAlreadyInAccountBalance);
+  const odUsed = odUsedInAccounts + odUsedOnFds;
   const cardUsed = state.cards.reduce((sum, item) => sum + num(item.usedLimit), 0);
   const loans = state.loans.reduce((sum, item) => sum + num(item.outstanding), 0);
-  return { odUsed, cardUsed, loans, total: odUsed + cardUsed + loans };
+  return { odUsed, odAlreadyInAccountBalance, odExtraLiability, cardUsed, loans, total: odExtraLiability + cardUsed + loans };
 }
 
 function makeEvent({ date, name, type, account, accountId = "", inflow = 0, outflow = 0, status = "Forecast", category = "", affectsCash = true, generated = false, mandatory = null }) {
@@ -1477,11 +1535,11 @@ function renderTabs() {
 function renderDashboard() {
   const month = currentMonth();
   const accounts = accountStats();
-  const assets = assetStats();
+  const assets = assetStats(month);
   const liabilities = liabilityStats();
   const summary = monthSummary(month);
   const netWorth = accounts.realCash + assets.locked - liabilities.total;
-  const goals = goalStats();
+  const goals = goalStats(month);
 
   text("#realCash", rupee(accounts.realCash));
   text("#availableCash", rupee(accounts.availableCash));
@@ -1498,23 +1556,27 @@ function renderDashboard() {
     ["FDs", assets.fds],
     ["RDs", assets.rds],
     ["Investments", assets.investments],
-    ["OD/Card/Loans", -liabilities.total]
+    ["Cards", -liabilities.cardUsed],
+    ["Loans", -liabilities.loans],
+    ["OD extra liability", -liabilities.odExtraLiability],
+    ["OD already in account balance", -liabilities.odAlreadyInAccountBalance]
   ].map(([label, value]) => `<dt>${label}</dt><dd>${rupee(value)}</dd>`).join("");
 
 }
 
-function goalStats() {
+function goalStats(month = currentMonth()) {
+  const asOfDate = selectedAsOfDate(month);
   return state.goals.map((goal) => {
     const target = num(goal.targetAmount);
     const manual = num(goal.currentSaved);
-    const fdValue = sumByIds(goal.linkedFdIds, state.fds, (item) => num(item.currentValue || item.principal));
-    const rdValue = sumByIds(goal.linkedRdIds, state.rds, (item) => num(item.currentValue));
+    const fdValue = sumByIds(goal.linkedFdIds, state.fds, (item) => fdValueAsOf(item, asOfDate));
+    const rdValue = sumByIds(goal.linkedRdIds, state.rds, (item) => rdValueAsOf(item, asOfDate));
     const fdNames = labelForIds(goal.linkedFdIds, "fds");
     const rdNames = labelForIds(goal.linkedRdIds, "rds");
     const progress = manual + fdValue + rdValue;
     const percent = target > 0 ? Math.max(0, Math.min(100, Math.round((progress / target) * 100))) : 0;
     const remaining = Math.max(0, target - progress);
-    const monthsLeft = monthsUntil(goal.targetDate);
+    const monthsLeft = monthsUntil(goal.targetDate, month);
     const monthlyRequired = monthsLeft > 0 ? remaining / monthsLeft : remaining;
     return { ...goal, target, manual, fdValue, rdValue, fdNames, rdNames, progress, percent, remaining, monthsLeft, monthlyRequired };
   }).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || b.percent - a.percent);
@@ -1528,10 +1590,10 @@ function sumByIds(ids, collection, picker) {
   }, 0);
 }
 
-function monthsUntil(dateString) {
+function monthsUntil(dateString, fromMonth = monthValue()) {
   if (!dateString) return 0;
   const targetMonth = dateString.slice(0, 7);
-  return Math.max(0, monthDiff(monthValue(), targetMonth) + 1);
+  return Math.max(0, monthDiff(fromMonth, targetMonth) + 1);
 }
 
 function priorityRank(priority) {
@@ -1551,7 +1613,8 @@ function renderGoalTracker(goals) {
     const rdNames = goal.rdNames ? `<span>RD names: ${escapeHtml(goal.rdNames)}</span>` : "";
     const emptyLinkLine = !goal.fdValue && !goal.rdValue ? `<span>No FD/RD selected yet</span>` : "";
     const manualLine = goal.manual > 0 ? `<span>Manual saved: ${rupee(goal.manual)}</span>` : "";
-    const monthlyLine = goal.targetDate ? `<span>Needed monthly: ${rupee(goal.monthlyRequired)}</span>` : "";
+    const monthlyLine = goal.targetDate ? `<span>Needed monthly from ${escapeHtml(currentMonth())}: ${rupee(goal.monthlyRequired)}</span>` : "";
+    const asOfLine = `<span>Values as of: ${escapeHtml(selectedAsOfDate())}</span>`;
     return `
       <article class="goal-card">
         <header>
@@ -1567,6 +1630,7 @@ function renderGoalTracker(goals) {
           <span>Target: ${rupee(goal.target)}</span>
           <span>Remaining: ${rupee(goal.remaining)}</span>
           ${monthlyLine}
+          ${asOfLine}
           ${fdLine}
           ${rdLine}
           ${fdNames}
@@ -1816,7 +1880,7 @@ async function saveToSheet() {
     monthlySummary: monthSummary(month),
     dashboard: {
       accounts: accountStats(),
-      assets: assetStats(),
+      assets: assetStats(month),
       liabilities: liabilityStats()
     }
   };
