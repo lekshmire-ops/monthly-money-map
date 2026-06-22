@@ -98,3 +98,603 @@ function r(key, label, source) { return { key, label, type: "reference", source 
 function loadState() {
   try {
     return { ...structuredClone(blankState), ...JSON.parse(localStorage.getItem(storageKey) || "{}") };
+  } catch {
+    return structuredClone(blankState);
+  }
+}
+
+function saveState() {
+  localStorage.setItem(storageKey, JSON.stringify(state));
+}
+
+function id() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function rupee(value) {
+  return money.format(Number(value) || 0);
+}
+
+function num(value) {
+  return Number(value) || 0;
+}
+
+function monthValue(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthBounds(month) {
+  const [year, index] = month.split("-").map(Number);
+  const start = new Date(year, index - 1, 1);
+  const end = new Date(year, index, 0);
+  return { year, index, start, end, days: end.getDate() };
+}
+
+function dateInMonth(month, day = 1) {
+  const { year, index, days } = monthBounds(month);
+  const safeDay = Math.min(Math.max(Number(day) || 1, 1), days);
+  return `${year}-${String(index).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+}
+
+function sameMonth(date, month) {
+  return Boolean(date) && date.slice(0, 7) === month;
+}
+
+function isBetweenMonth(item, month, startKey = "startDate", endKey = "endDate") {
+  const start = item[startKey] || "0000-01-01";
+  const end = item[endKey] || "9999-12-31";
+  return month >= start.slice(0, 7) && month <= end.slice(0, 7);
+}
+
+function frequencyMatches(item, month, dateKey = "date") {
+  const frequency = item.frequency || "One-time";
+  if (frequency === "One-time" || frequency === "Irregular") return sameMonth(item[dateKey] || item.expectedDate, month);
+  const baseDate = item[dateKey] || item.expectedDate || item.startDate;
+  if (baseDate && month < baseDate.slice(0, 7)) return false;
+  if (item.endDate && month > item.endDate.slice(0, 7)) return false;
+  const diff = monthDiff(baseDate ? baseDate.slice(0, 7) : monthValue(), month);
+  if (diff < 0) return false;
+  if (frequency === "Monthly") return true;
+  if (frequency === "Quarterly") return diff % 3 === 0;
+  if (frequency === "Yearly") return diff % 12 === 0;
+  return false;
+}
+
+function monthDiff(fromMonth, toMonth) {
+  const [fy, fm] = fromMonth.split("-").map(Number);
+  const [ty, tm] = toMonth.split("-").map(Number);
+  return (ty - fy) * 12 + (tm - fm);
+}
+
+function sourceName(sourceId) {
+  return [...state.accounts, ...state.cards].find((item) => item.id === sourceId)?.name || "";
+}
+
+function referenceOptions(source) {
+  if (source === "paymentSources") return [...state.accounts, ...state.cards].map((item) => ({ value: item.id, label: item.name || "Unnamed" }));
+  return (state[source] || []).map((item) => ({ value: item.id, label: item.name || "Unnamed" }));
+}
+
+function currentMonth() {
+  return document.querySelector("#monthPicker").value || monthValue();
+}
+
+function accountStats() {
+  const accounts = state.accounts;
+  const realCash = accounts.reduce((sum, account) => sum + num(account.actualBalance), 0);
+  const unusedOd = accounts.reduce((sum, account) => {
+    if (!account.isOdLinked) return sum;
+    return sum + Math.max(0, num(account.odLimit) - num(account.odUsed));
+  }, 0);
+  const availableCash = accounts.reduce((sum, account) => {
+    const fallback = account.isOdLinked ? num(account.actualBalance) + Math.max(0, num(account.odLimit) - num(account.odUsed)) : num(account.actualBalance);
+    return sum + (account.availableBalance === "" || account.availableBalance == null ? fallback : num(account.availableBalance));
+  }, 0);
+  const liquidCash = accounts.reduce((sum, account) => sum + Math.max(0, num(account.actualBalance)), 0);
+  return { realCash, availableCash, unusedOd, liquidCash };
+}
+
+function assetStats() {
+  const fds = state.fds.reduce((sum, item) => sum + num(item.currentValue || item.principal), 0);
+  const rds = state.rds.reduce((sum, item) => sum + num(item.currentValue), 0);
+  const investments = state.investments.reduce((sum, item) => sum + num(item.currentValue), 0);
+  return { fds, rds, investments, locked: fds + rds + investments };
+}
+
+function liabilityStats() {
+  const odUsed = state.accounts.reduce((sum, item) => sum + num(item.odUsed), 0) + state.fds.reduce((sum, item) => sum + num(item.odUsed), 0);
+  const cardUsed = state.cards.reduce((sum, item) => sum + num(item.usedLimit), 0);
+  const loans = state.loans.reduce((sum, item) => sum + num(item.outstanding), 0);
+  return { odUsed, cardUsed, loans, total: odUsed + cardUsed + loans };
+}
+
+function makeEvent({ date, name, type, account, inflow = 0, outflow = 0, status = "Forecast", category = "", affectsCash = true }) {
+  return { date, name, type, account, inflow: num(inflow), outflow: num(outflow), status, category, affectsCash };
+}
+
+function monthlyEvents(month) {
+  const events = [];
+
+  state.income.forEach((item) => {
+    if (!frequencyMatches(item, month, "expectedDate")) return;
+    const day = item.expectedDate ? Number(item.expectedDate.slice(8, 10)) : 1;
+    events.push(makeEvent({
+      date: item.frequency === "Monthly" ? dateInMonth(month, day) : item.expectedDate,
+      name: item.name || "Income",
+      type: "Income",
+      account: sourceName(item.destinationAccountId),
+      inflow: item.received ? num(item.amount) : num(item.amount),
+      status: item.received ? "Received" : item.confirmed ? "Confirmed" : "Forecast"
+    }));
+  });
+
+  state.expenses.forEach((item) => {
+    if (!frequencyMatches(item, month, "date")) return;
+    const day = item.date ? Number(item.date.slice(8, 10)) : 1;
+    const viaCard = item.paymentMode === "Credit Card";
+    events.push(makeEvent({
+      date: item.frequency === "One-time" ? item.date : dateInMonth(month, day),
+      name: item.name || "Expense",
+      type: viaCard ? "Card Charge" : "Expense",
+      account: sourceName(item.sourceId),
+      outflow: num(item.amount),
+      status: item.paid ? "Paid" : item.confirmed ? "Confirmed" : "Planned",
+      category: item.category,
+      affectsCash: !viaCard
+    }));
+  });
+
+  state.subscriptions.forEach((item) => {
+    if (!item.active || !frequencyMatches(item, month, "startDate")) return;
+    const viaCard = item.paymentMethod === "Credit Card";
+    events.push(makeEvent({
+      date: dateInMonth(month, item.billingDay),
+      name: item.name || "Subscription",
+      type: viaCard ? "Card Charge" : "Subscription",
+      account: sourceName(item.sourceId),
+      outflow: num(item.amount),
+      status: "Forecast",
+      category: item.category,
+      affectsCash: !viaCard
+    }));
+  });
+
+  state.rds.forEach((item) => {
+    if (isBetweenMonth(item, month)) {
+      events.push(makeEvent({
+        date: dateInMonth(month, item.installmentDay),
+        name: `${item.name || "RD"} installment`,
+        type: "Savings",
+        account: sourceName(item.sourceAccountId),
+        outflow: num(item.monthlyInstallment),
+        status: "Forecast",
+        category: "RD"
+      }));
+      if (num(item.topupAmount) > 0) {
+        events.push(makeEvent({
+          date: dateInMonth(month, item.topupDay || item.installmentDay),
+          name: `${item.name || "RD"} top-up`,
+          type: "Savings",
+          account: sourceName(item.sourceAccountId),
+          outflow: num(item.topupAmount),
+          status: "Forecast",
+          category: "RD"
+        }));
+      }
+    }
+    if (sameMonth(item.endDate, month)) {
+      events.push(makeEvent({
+        date: item.endDate,
+        name: `${item.name || "RD"} maturity`,
+        type: "Asset Maturity",
+        account: sourceName(item.sourceAccountId),
+        inflow: num(item.revisedMaturity || item.plannedMaturity),
+        status: "Forecast",
+        category: "RD"
+      }));
+    }
+  });
+
+  state.fds.forEach((item) => {
+    if (sameMonth(item.maturityDate, month) && !item.autoRenew) {
+      events.push(makeEvent({
+        date: item.maturityDate,
+        name: `${item.name || "FD"} maturity`,
+        type: "Asset Maturity",
+        account: sourceName(item.odAccountId),
+        inflow: num(item.maturityAmount || item.currentValue || item.principal),
+        status: "Forecast",
+        category: "FD"
+      }));
+    }
+  });
+
+  state.investments.forEach((item) => {
+    if (isBetweenMonth(item, month) && num(item.monthlyContribution) > 0) {
+      events.push(makeEvent({
+        date: dateInMonth(month, item.contributionDay),
+        name: `${item.name || "Investment"} contribution`,
+        type: "Investment",
+        account: sourceName(item.sourceAccountId),
+        outflow: num(item.monthlyContribution),
+        status: item.mandatory ? "Forecast" : "Planned",
+        category: "Investment"
+      }));
+    }
+    if (sameMonth(item.endDate, month)) {
+      events.push(makeEvent({
+        date: item.endDate,
+        name: `${item.name || "Investment"} maturity`,
+        type: "Asset Maturity",
+        account: sourceName(item.sourceAccountId),
+        inflow: num(item.expectedMaturity || item.currentValue),
+        status: "Forecast",
+        category: "Investment"
+      }));
+    }
+  });
+
+  state.cards.forEach((item) => {
+    const due = num(item.fullDue || item.usedLimit);
+    if (due > 0) {
+      events.push(makeEvent({
+        date: dateInMonth(month, item.dueDay),
+        name: `${item.name || "Credit card"} payment`,
+        type: "Card Payment",
+        account: sourceName(item.repaymentAccountId),
+        outflow: due,
+        status: "Forecast",
+        category: "Debt"
+      }));
+    }
+  });
+
+  state.loans.forEach((item) => {
+    if (item.active === false || (item.endDate && month > item.endDate.slice(0, 7))) return;
+    if (num(item.emi) > 0) {
+      events.push(makeEvent({
+        date: dateInMonth(month, item.paymentDay),
+        name: `${item.name || "Loan"} payment`,
+        type: item.type === "OD" ? "OD Payment" : "Loan EMI",
+        account: sourceName(item.sourceAccountId),
+        outflow: num(item.emi),
+        status: "Forecast",
+        category: "Debt"
+      }));
+    }
+  });
+
+  state.manualEvents.forEach((item) => {
+    if (!sameMonth(item.date, month)) return;
+    events.push(makeEvent({
+      date: item.date,
+      name: item.name || "Manual item",
+      type: item.type || "Adjustment",
+      account: sourceName(item.sourceId),
+      inflow: item.direction === "Inflow" ? num(item.amount) : 0,
+      outflow: item.direction === "Outflow" ? num(item.amount) : 0,
+      status: item.status || "Planned",
+      category: "Manual"
+    }));
+  });
+
+  return events.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+}
+
+function monthSummary(month) {
+  const { realCash, liquidCash } = accountStats();
+  let running = realCash;
+  const events = monthlyEvents(month).map((event) => {
+    if (event.affectsCash) running += event.inflow - event.outflow;
+    return { ...event, balanceAfter: running };
+  });
+  const income = events.reduce((sum, item) => sum + item.inflow, 0);
+  const outflow = events.reduce((sum, item) => sum + item.outflow, 0);
+  const mandatory = events.filter((item) => ["Debt", "Card Payment", "Loan EMI", "OD Payment", "Subscription", "Savings", "Investment"].includes(item.type)).reduce((sum, item) => sum + item.outflow, 0);
+  const cardCharges = events.filter((item) => item.type === "Card Charge").reduce((sum, item) => sum + item.outflow, 0);
+  const assetMove = events.filter((item) => ["Savings", "Investment", "Asset Maturity"].includes(item.type)).reduce((sum, item) => sum + item.inflow - item.outflow, 0);
+  const liabilityMove = cardCharges - events.filter((item) => ["Card Payment", "Loan EMI", "OD Payment"].includes(item.type)).reduce((sum, item) => sum + item.outflow, 0);
+  const safeToSpend = liquidCash - mandatory - num(state.settings.buffer);
+  return { events, opening: realCash, income, outflow, mandatory, closing: running, cardCharges, assetMove, liabilityMove, safeToSpend };
+}
+
+function renderTabs() {
+  document.querySelector("#tabs").innerHTML = tabs.map(([key, label]) => `<button class="${activeTab === key ? "active" : ""}" data-tab="${key}" type="button">${label}</button>`).join("");
+  document.querySelectorAll("[data-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeTab = button.dataset.tab;
+      render();
+    });
+  });
+  document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.dataset.view === activeTab));
+}
+
+function renderDashboard() {
+  const month = currentMonth();
+  const accounts = accountStats();
+  const assets = assetStats();
+  const liabilities = liabilityStats();
+  const summary = monthSummary(month);
+  const netWorth = accounts.realCash + assets.locked - liabilities.total;
+
+  text("#realCash", rupee(accounts.realCash));
+  text("#availableCash", rupee(accounts.availableCash));
+  text("#borrowedAccess", rupee(accounts.unusedOd + state.cards.reduce((sum, item) => sum + Math.max(0, num(item.creditLimit) - num(item.usedLimit)), 0)));
+  text("#safeToSpend", rupee(summary.safeToSpend));
+  text("#lockedSavings", rupee(assets.locked));
+  text("#upcomingBills", rupee(summary.mandatory));
+  text("#netWorth", rupee(netWorth));
+  text("#monthSummary", `${month} has ${rupee(summary.income)} expected inflow and ${rupee(summary.outflow)} expected outflow from your current setup.`);
+
+  const pressure = summary.income > 0 ? Math.min(100, Math.round((summary.outflow / summary.income) * 100)) : summary.outflow > 0 ? 100 : 0;
+  const pressureBar = document.querySelector("#pressureBar");
+  pressureBar.style.width = `${pressure}%`;
+  pressureBar.style.background = pressure > 90 ? "var(--red)" : pressure > 65 ? "var(--amber)" : "var(--green)";
+
+  document.querySelector("#netWorthBreakdown").innerHTML = [
+    ["Accounts", accounts.realCash],
+    ["FDs", assets.fds],
+    ["RDs", assets.rds],
+    ["Investments", assets.investments],
+    ["OD/Card/Loans", -liabilities.total]
+  ].map(([label, value]) => `<dt>${label}</dt><dd>${rupee(value)}</dd>`).join("");
+
+  const warnings = [];
+  if (summary.safeToSpend < 0) warnings.push("Safe to Spend is negative after mandatory outflows and your buffer.");
+  if (accounts.availableCash > accounts.realCash) warnings.push("Available Cash includes borrowed access from OD or credit.");
+  if (summary.cardCharges > 0) warnings.push("Credit card purchases increase future repayment pressure even when cash does not move today.");
+  if (state.fds.some((item) => item.maturityDate && daysUntil(item.maturityDate) <= 30 && daysUntil(item.maturityDate) >= 0)) warnings.push("At least one FD matures in the next 30 days.");
+  if (state.rds.some((item) => item.endDate && daysUntil(item.endDate) <= 30 && daysUntil(item.endDate) >= 0)) warnings.push("At least one RD matures in the next 30 days.");
+  document.querySelector("#warnings").innerHTML = warnings.length ? warnings.map((item) => `<li>${item}</li>`).join("") : "<li>No warnings yet. Add setup data to make this useful.</li>";
+}
+
+function daysUntil(dateString) {
+  const today = new Date();
+  const target = new Date(`${dateString}T00:00:00`);
+  return Math.ceil((target - today) / 86400000);
+}
+
+function renderMonthly() {
+  const summary = monthSummary(currentMonth());
+  text("#openingCash", rupee(summary.opening));
+  text("#monthIncome", rupee(summary.income));
+  text("#monthOutflow", rupee(summary.outflow));
+  text("#closingCash", rupee(summary.closing));
+  text("#liabilityMove", rupee(summary.liabilityMove));
+  text("#assetMove", rupee(summary.assetMove));
+
+  let html = "";
+  if (!summary.events.length) {
+    html = `<tr><td colspan="8">No monthly items yet. Add setup data or a manual item.</td></tr>`;
+  } else {
+    html = summary.events.map((event) => `
+      <tr>
+        <td>${event.date || ""}</td>
+        <td>${escapeHtml(event.name)}</td>
+        <td>${escapeHtml(event.type)}</td>
+        <td>${escapeHtml(event.account)}</td>
+        <td class="amount">${event.inflow ? rupee(event.inflow) : ""}</td>
+        <td class="amount">${event.outflow ? rupee(event.outflow) : ""}${event.affectsCash ? "" : " <span class=\"pill warning\">No cash move</span>"}</td>
+        <td class="amount">${event.affectsCash ? rupee(event.balanceAfter) : "Card / credit"}</td>
+        <td><span class="pill ${event.status === "Paid" || event.status === "Received" ? "actual" : event.status === "Forecast" ? "" : "warning"}">${escapeHtml(event.status)}</span></td>
+      </tr>
+    `).join("");
+  }
+  document.querySelector("#monthlyLedger").innerHTML = html;
+}
+
+function renderSetupNav() {
+  document.querySelector("#setupNav").innerHTML = setupSections.map((section) => `<button class="${activeSetup === section.key ? "active" : ""}" data-setup="${section.key}" type="button">${section.label}</button>`).join("");
+  document.querySelectorAll("[data-setup]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeSetup = button.dataset.setup;
+      render();
+    });
+  });
+}
+
+function renderSetup() {
+  const section = sectionMap[activeSetup];
+  text("#setupTitle", section.label);
+  text("#setupHint", section.hint);
+  text("#addSetupItem", `Add ${section.label.replace("Credit Cards", "Card").replace("Loans / ODs", "Loan")}`);
+  const items = state[activeSetup] || [];
+  document.querySelector("#emptyState").classList.toggle("active", items.length === 0);
+  document.querySelector("#setupCards").innerHTML = items.map((item) => cardFor(section, item)).join("");
+  document.querySelectorAll("[data-edit]").forEach((button) => {
+    button.addEventListener("click", () => openEditor(activeSetup, button.dataset.edit));
+  });
+}
+
+function cardFor(section, item) {
+  const values = section.fields
+    .filter((field) => field.key !== "notes" && field.key !== section.title)
+    .slice(0, 5)
+    .map((field) => {
+      const value = item[field.key];
+      if (value === "" || value == null || value === false) return "";
+      const shown = field.type === "number" ? rupee(value) : field.type === "checkbox" ? "Yes" : field.type === "reference" ? sourceName(value) : value;
+      return `<div><span>${field.label}</span><strong>${escapeHtml(String(shown))}</strong></div>`;
+    })
+    .filter(Boolean)
+    .join("");
+  return `
+    <article class="setup-card">
+      <header>
+        <div>
+          <h3>${escapeHtml(item[section.title] || "Unnamed")}</h3>
+          <span class="pill">${section.label}</span>
+        </div>
+        <button class="icon-button" data-edit="${item.id}" type="button" aria-label="Edit">✎</button>
+      </header>
+      <div class="card-meta">${values || "<div><span>No details yet</span><strong></strong></div>"}</div>
+    </article>
+  `;
+}
+
+function renderSettings() {
+  const buffer = document.querySelector("#bufferInput");
+  const sheetUrl = document.querySelector("#sheetUrlInput");
+  buffer.value = state.settings.buffer || "";
+  sheetUrl.value = state.settings.sheetUrl || "";
+  text("#syncStatus", state.settings.sheetUrl ? "Connected URL saved. Ready to sync." : "Not connected yet.");
+}
+
+function render() {
+  document.querySelector("#monthPicker").value ||= monthValue();
+  renderTabs();
+  renderSetupNav();
+  renderDashboard();
+  renderMonthly();
+  renderSetup();
+  renderSettings();
+}
+
+function text(selector, value) {
+  document.querySelector(selector).textContent = value;
+}
+
+function openEditor(sectionKey, itemId = null) {
+  const section = sectionMap[sectionKey];
+  const item = itemId ? state[sectionKey].find((entry) => entry.id === itemId) : { id: id() };
+  editing = { sectionKey, itemId, item: structuredClone(item) };
+  text("#editorTitle", `${itemId ? "Edit" : "Add"} ${section.label}`);
+  text("#editorHint", section.hint);
+  document.querySelector("#deleteItem").style.visibility = itemId ? "visible" : "hidden";
+  document.querySelector("#editorFields").innerHTML = section.fields.map((field) => editorField(field, editing.item)).join("");
+  document.querySelector("#editor").showModal();
+}
+
+function editorField(field, item) {
+  const value = item[field.key] ?? "";
+  const full = field.type === "textarea" ? " full" : "";
+  if (field.type === "select") {
+    return `<label class="${full}">${field.label}<select data-field="${field.key}">${field.options.map((option) => `<option ${option === value ? "selected" : ""}>${option}</option>`).join("")}</select></label>`;
+  }
+  if (field.type === "reference") {
+    const options = referenceOptions(field.source);
+    return `<label class="${full}">${field.label}<select data-field="${field.key}"><option value=""></option>${options.map((option) => `<option value="${option.value}" ${option.value === value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>`;
+  }
+  if (field.type === "checkbox") {
+    return `<label>${field.label}<select data-field="${field.key}"><option value="false" ${!value ? "selected" : ""}>No</option><option value="true" ${value ? "selected" : ""}>Yes</option></select></label>`;
+  }
+  if (field.type === "textarea") {
+    return `<label class="full">${field.label}<textarea data-field="${field.key}">${escapeHtml(value)}</textarea></label>`;
+  }
+  return `<label>${field.label}<input data-field="${field.key}" type="${field.type}" value="${escapeHtml(String(value))}" ${field.type === "number" ? "step=\"1\"" : ""}></label>`;
+}
+
+function saveEditor() {
+  const { sectionKey, itemId, item } = editing;
+  document.querySelectorAll("#editorFields [data-field]").forEach((input) => {
+    const field = sectionMap[sectionKey].fields.find((entry) => entry.key === input.dataset.field);
+    item[input.dataset.field] = field.type === "number" ? num(input.value) : field.type === "checkbox" ? input.value === "true" : input.value.trim();
+  });
+  if (itemId) {
+    const index = state[sectionKey].findIndex((entry) => entry.id === itemId);
+    state[sectionKey][index] = item;
+  } else {
+    state[sectionKey].push(item);
+  }
+  saveState();
+  document.querySelector("#editor").close();
+  render();
+}
+
+function deleteEditorItem() {
+  if (!editing?.itemId) return;
+  state[editing.sectionKey] = state[editing.sectionKey].filter((item) => item.id !== editing.itemId);
+  saveState();
+  document.querySelector("#editor").close();
+  render();
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;" }[char]));
+}
+
+function exportBackup() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `monthly-money-map-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function importBackup(file) {
+  if (!file) return;
+  const parsed = JSON.parse(await file.text());
+  state = { ...structuredClone(blankState), ...parsed };
+  saveState();
+  render();
+}
+
+async function saveToSheet() {
+  const status = document.querySelector("#syncStatus");
+  if (!state.settings.sheetUrl) {
+    activeTab = "settings";
+    render();
+    text("#syncStatus", "Paste your Apps Script URL first.");
+    return;
+  }
+  status.textContent = "Saving...";
+  const month = currentMonth();
+  const payload = {
+    savedAt: new Date().toISOString(),
+    selectedMonth: month,
+    state,
+    monthlySummary: monthSummary(month),
+    dashboard: {
+      accounts: accountStats(),
+      assets: assetStats(),
+      liabilities: liabilityStats()
+    }
+  };
+  try {
+    await fetch(state.settings.sheetUrl, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    text("#syncStatus", "Saved. Google Sheets may take a few seconds to show it.");
+  } catch {
+    text("#syncStatus", "Save failed. Check the Apps Script URL and deployment access.");
+  }
+}
+
+document.querySelector("#monthPicker").value = monthValue();
+document.querySelector("#monthPicker").addEventListener("change", render);
+document.querySelector("#addSetupItem").addEventListener("click", () => openEditor(activeSetup));
+document.querySelectorAll("[data-add]").forEach((button) => {
+  button.addEventListener("click", () => {
+    activeTab = "setup";
+    activeSetup = button.dataset.add;
+    render();
+    openEditor(button.dataset.add);
+  });
+});
+document.querySelector("#saveItem").addEventListener("click", saveEditor);
+document.querySelector("#deleteItem").addEventListener("click", deleteEditorItem);
+document.querySelector("#exportData").addEventListener("click", exportBackup);
+document.querySelector("#importData").addEventListener("change", (event) => importBackup(event.target.files[0]));
+document.querySelector("#saveSheet").addEventListener("click", saveToSheet);
+document.querySelector("#bufferInput").addEventListener("input", (event) => {
+  state.settings.buffer = num(event.target.value);
+  saveState();
+  renderDashboard();
+});
+document.querySelector("#sheetUrlInput").addEventListener("input", (event) => {
+  state.settings.sheetUrl = event.target.value.trim();
+  saveState();
+  renderSettings();
+});
+document.querySelector("#resetAll").addEventListener("click", () => {
+  state = structuredClone(blankState);
+  saveState();
+  render();
+});
+
+render();
