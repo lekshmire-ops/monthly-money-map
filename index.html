@@ -633,9 +633,9 @@ dialog::backdrop {
             <small>OD and credit access, not your money</small>
           </article>
           <article class="metric good">
-            <span>Safe to Spend</span>
-            <strong id="safeToSpend">₹0</strong>
-            <small>Liquid cash minus near-term mandatory pressure</small>
+            <span>Projected Month-End</span>
+            <strong id="projectedMonthEnd">₹0</strong>
+            <small>Cash after dated inflows and outflows</small>
           </article>
           <article class="metric">
             <span>Locked Savings</span>
@@ -654,7 +654,7 @@ dialog::backdrop {
             <div class="panel-head">
               <div>
                 <h2>This Month's Pressure</h2>
-                <p id="monthSummary">2026-06 has ₹0 expected inflow and ₹0 expected outflow from your current setup.</p>
+                <p id="monthSummary">2026-06 opens at ₹0, reaches a lowest cash point of ₹0 on 2026-06-01, and closes at ₹0.</p>
               </div>
             </div>
             <div class="pressure-bar"><div id="pressureBar" style="width: 0%; background: var(--green);"></div></div>
@@ -736,7 +736,7 @@ dialog::backdrop {
             </div>
           </div>
           <label>
-            Minimum cash buffer for Safe to Spend
+            Target minimum cash cushion
             <input id="bufferInput" type="number" step="1">
           </label>
           <label>
@@ -775,7 +775,7 @@ const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR
 const setupSections = [
   { key: "accounts", label: "Accounts", hint: "Savings, current, salary, and OD-linked accounts.", title: "name", fields: [
     f("name", "Account Name"), f("bank", "Bank Name"), s("type", "Account Type", ["Savings", "Current", "Salary", "OD-linked", "Other"]),
-    n("actualBalance", "Actual Balance"), n("availableBalance", "Available Balance"), b("isOdLinked", "Is OD linked?"),
+    n("actualBalance", "Actual Balance"), n("availableBalance", "Available Balance"), d("balanceDate", "Balance Reference Date"), b("isOdLinked", "Is OD linked?"),
     n("odLimit", "OD Limit"), n("odUsed", "OD Used"), r("linkedFdId", "Linked FD", "fds"), b("salaryCredited", "Salary credited here?"),
     b("defaultExpense", "Default expense account?"), t("notes", "Notes")
   ] },
@@ -787,9 +787,9 @@ const setupSections = [
   ] },
   { key: "expenses", label: "Expenses", hint: "One-time and recurring planned expenses.", title: "name", fields: [
     f("name", "Expense Name"), s("category", "Category", ["Living", "Dance", "Wedding", "Travel", "Medical", "Shopping", "EMI", "Other"]),
-    n("amount", "Amount"), d("date", "Date"), s("frequency", "Frequency", ["One-time", "Monthly", "Quarterly", "Yearly"]),
+    n("amount", "Amount"), d("date", "First Due Date"), s("frequency", "Frequency", ["One-time", "Monthly", "Quarterly", "Yearly"]), d("endDate", "End Date"),
     s("paymentMode", "Payment Mode", ["Account", "Credit Card", "OD", "Cash"]), r("sourceId", "Source Account/Card", "paymentSources"),
-    b("confirmed", "Confirmed?"), b("paid", "Paid?"), t("notes", "Notes")
+    b("mandatory", "Mandatory?"), b("confirmed", "Confirmed?"), b("paid", "Paid?"), t("notes", "Notes")
   ] },
   { key: "fds", label: "FDs", hint: "Fixed deposits, maturities, and FD-backed overdrafts.", title: "name", fields: [
     f("name", "FD Name"), f("bank", "Bank"), n("principal", "Principal Amount"), n("currentValue", "Current Value"),
@@ -807,15 +807,17 @@ const setupSections = [
   ] },
   { key: "investments", label: "Investments", hint: "Gold plans, SIPs, mutual funds, stocks, chits, or other assets.", title: "name", fields: [
     f("name", "Investment Name"), s("type", "Type", ["Gold Plan", "SIP", "Mutual Fund", "Stock", "Chit", "Other"]),
-    n("currentValue", "Current Value"), n("monthlyContribution", "Monthly Contribution"), n("contributionDay", "Contribution Date each month"),
+    n("currentValue", "Current Value"), n("monthlyContribution", "Contribution Amount"), s("contributionFrequency", "Contribution Frequency", ["Monthly", "Quarterly", "Yearly", "One-time"]),
+    d("firstContributionDate", "First Contribution Date"), n("contributionDay", "Contribution Day"),
     r("sourceAccountId", "Source Account", "accounts"), d("startDate", "Start Date"), d("endDate", "End/Maturity Date"),
     n("expectedMaturity", "Expected Maturity Value"), b("mandatory", "Is contribution mandatory?"), b("canPause", "Can pause?"),
     s("purpose", "Purpose Tag", ["Wedding", "Long-term", "Dance", "General", "Other"]), t("notes", "Notes")
   ] },
   { key: "cards", label: "Credit Cards", hint: "Credit limits, used limits, statement dates, and repayment dates.", title: "name", fields: [
     f("name", "Card Name"), f("bank", "Bank"), n("creditLimit", "Credit Limit"), n("usedLimit", "Current Used Limit"),
-    n("statementDay", "Statement Date each month"), n("dueDay", "Payment Due Date each month"), n("minimumDue", "Minimum Due"),
-    n("fullDue", "Full Due"), r("repaymentAccountId", "Default Repayment Account", "accounts"), n("interestRate", "Interest Rate %"), t("notes", "Notes")
+    n("statementDay", "Statement Date each month"), n("dueDay", "Payment Due Date each month"), n("minimumDue", "Current Minimum Due"),
+    n("fullDue", "Current Full Due"), d("currentDueDate", "Current Bill Due Date"), r("repaymentAccountId", "Default Repayment Account", "accounts"),
+    b("autoGenerateRepayments", "Auto-generate future repayments?"), n("interestRate", "Interest Rate %"), t("notes", "Notes")
   ] },
   { key: "loans", label: "Loans / ODs", hint: "Personal loans, consumer loans, overdrafts, and other liabilities.", title: "name", fields: [
     f("name", "Loan or OD Name"), s("type", "Type", ["Personal Loan", "Consumer Loan", "OD", "Other"]),
@@ -894,6 +896,11 @@ function monthValue(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function todayValue() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
 function monthBounds(month) {
   const [year, index] = month.split("-").map(Number);
   const start = new Date(year, index - 1, 1);
@@ -935,6 +942,38 @@ function monthDiff(fromMonth, toMonth) {
   const [fy, fm] = fromMonth.split("-").map(Number);
   const [ty, tm] = toMonth.split("-").map(Number);
   return (ty - fy) * 12 + (tm - fm);
+}
+
+function addMonths(month, count) {
+  const [year, index] = month.split("-").map(Number);
+  return monthValue(new Date(year, index - 1 + count, 1));
+}
+
+function monthRange(fromMonth, toMonth) {
+  const months = [];
+  for (let month = fromMonth; month <= toMonth; month = addMonths(month, 1)) {
+    months.push(month);
+  }
+  return months;
+}
+
+function accountById(accountId) {
+  return state.accounts.find((account) => account.id === accountId);
+}
+
+function accountReferenceDate(accountId) {
+  return accountById(accountId)?.balanceDate || todayValue();
+}
+
+function earliestReferenceMonth() {
+  const dates = state.accounts.map((account) => account.balanceDate).filter(Boolean);
+  const earliest = dates.sort()[0] || todayValue();
+  return earliest.slice(0, 7);
+}
+
+function eventAffectsProjection(event) {
+  if (!event.affectsCash) return false;
+  return event.date > accountReferenceDate(event.accountId);
 }
 
 function sourceName(sourceId) {
@@ -979,12 +1018,13 @@ function liabilityStats() {
   return { odUsed, cardUsed, loans, total: odUsed + cardUsed + loans };
 }
 
-function makeEvent({ date, name, type, account, inflow = 0, outflow = 0, status = "Forecast", category = "", affectsCash = true }) {
-  return { date, name, type, account, inflow: num(inflow), outflow: num(outflow), status, category, affectsCash };
+function makeEvent({ date, name, type, account, accountId = "", inflow = 0, outflow = 0, status = "Forecast", category = "", affectsCash = true, generated = false, mandatory = null }) {
+  return { date, name, type, account, accountId, inflow: num(inflow), outflow: num(outflow), status, category, affectsCash, generated, mandatory };
 }
 
-function monthlyEvents(month) {
+function monthlyEvents(month, options = {}) {
   const events = [];
+  const includeGeneratedCardPayments = options.includeGeneratedCardPayments !== false;
 
   state.income.forEach((item) => {
     if (!frequencyMatches(item, month, "expectedDate")) return;
@@ -994,6 +1034,7 @@ function monthlyEvents(month) {
       name: item.name || "Income",
       type: "Income",
       account: sourceName(item.destinationAccountId),
+      accountId: item.destinationAccountId,
       inflow: item.received ? num(item.amount) : num(item.amount),
       status: item.received ? "Received" : item.confirmed ? "Confirmed" : "Forecast"
     }));
@@ -1003,30 +1044,35 @@ function monthlyEvents(month) {
     if (!frequencyMatches(item, month, "date")) return;
     const day = item.date ? Number(item.date.slice(8, 10)) : 1;
     const viaCard = item.paymentMode === "Credit Card";
+    const eventDate = item.frequency === "One-time" ? item.date : dateInMonth(month, day);
     events.push(makeEvent({
-      date: item.frequency === "One-time" ? item.date : dateInMonth(month, day),
+      date: eventDate,
       name: item.name || "Expense",
       type: viaCard ? "Card Charge" : "Expense",
       account: sourceName(item.sourceId),
+      accountId: item.sourceId,
       outflow: num(item.amount),
       status: item.paid ? "Paid" : item.confirmed ? "Confirmed" : "Planned",
       category: item.category,
-      affectsCash: !viaCard
+      affectsCash: !viaCard,
+      mandatory: item.mandatory
     }));
   });
 
   state.subscriptions.forEach((item) => {
-    if (!item.active || !frequencyMatches(item, month, "startDate")) return;
+    if (item.active === false || !frequencyMatches(item, month, "startDate")) return;
     const viaCard = item.paymentMethod === "Credit Card";
     events.push(makeEvent({
       date: dateInMonth(month, item.billingDay),
       name: item.name || "Subscription",
       type: viaCard ? "Card Charge" : "Subscription",
       account: sourceName(item.sourceId),
+      accountId: item.sourceId,
       outflow: num(item.amount),
       status: "Forecast",
       category: item.category,
-      affectsCash: !viaCard
+      affectsCash: !viaCard,
+      mandatory: true
     }));
   });
 
@@ -1037,9 +1083,11 @@ function monthlyEvents(month) {
         name: `${item.name || "RD"} installment`,
         type: "Savings",
         account: sourceName(item.sourceAccountId),
+        accountId: item.sourceAccountId,
         outflow: num(item.monthlyInstallment),
         status: "Forecast",
-        category: "RD"
+        category: "RD",
+        mandatory: true
       }));
       if (num(item.topupAmount) > 0) {
         events.push(makeEvent({
@@ -1047,9 +1095,11 @@ function monthlyEvents(month) {
           name: `${item.name || "RD"} top-up`,
           type: "Savings",
           account: sourceName(item.sourceAccountId),
+          accountId: item.sourceAccountId,
           outflow: num(item.topupAmount),
           status: "Forecast",
-          category: "RD"
+          category: "RD",
+          mandatory: true
         }));
       }
     }
@@ -1059,6 +1109,7 @@ function monthlyEvents(month) {
         name: `${item.name || "RD"} maturity`,
         type: "Asset Maturity",
         account: sourceName(item.sourceAccountId),
+        accountId: item.sourceAccountId,
         inflow: num(item.revisedMaturity || item.plannedMaturity),
         status: "Forecast",
         category: "RD"
@@ -1073,6 +1124,7 @@ function monthlyEvents(month) {
         name: `${item.name || "FD"} maturity`,
         type: "Asset Maturity",
         account: sourceName(item.odAccountId),
+        accountId: item.odAccountId,
         inflow: num(item.maturityAmount || item.currentValue || item.principal),
         status: "Forecast",
         category: "FD"
@@ -1081,15 +1133,17 @@ function monthlyEvents(month) {
   });
 
   state.investments.forEach((item) => {
-    if (isBetweenMonth(item, month) && num(item.monthlyContribution) > 0) {
+    if (investmentContributionMatches(item, month) && num(item.monthlyContribution) > 0) {
       events.push(makeEvent({
-        date: dateInMonth(month, item.contributionDay),
+        date: dateInMonth(month, item.contributionDay || (item.firstContributionDate ? Number(item.firstContributionDate.slice(8, 10)) : 1)),
         name: `${item.name || "Investment"} contribution`,
         type: "Investment",
         account: sourceName(item.sourceAccountId),
+        accountId: item.sourceAccountId,
         outflow: num(item.monthlyContribution),
         status: item.mandatory ? "Forecast" : "Planned",
-        category: "Investment"
+        category: "Investment",
+        mandatory: item.mandatory
       }));
     }
     if (sameMonth(item.endDate, month)) {
@@ -1098,6 +1152,7 @@ function monthlyEvents(month) {
         name: `${item.name || "Investment"} maturity`,
         type: "Asset Maturity",
         account: sourceName(item.sourceAccountId),
+        accountId: item.sourceAccountId,
         inflow: num(item.expectedMaturity || item.currentValue),
         status: "Forecast",
         category: "Investment"
@@ -1106,16 +1161,18 @@ function monthlyEvents(month) {
   });
 
   state.cards.forEach((item) => {
-    const due = num(item.fullDue || item.usedLimit);
-    if (due > 0) {
+    const due = num(item.fullDue);
+    if (due > 0 && sameMonth(item.currentDueDate, month)) {
       events.push(makeEvent({
-        date: dateInMonth(month, item.dueDay),
-        name: `${item.name || "Credit card"} payment`,
+        date: item.currentDueDate,
+        name: `${item.name || "Credit card"} current bill payment`,
         type: "Card Payment",
         account: sourceName(item.repaymentAccountId),
+        accountId: item.repaymentAccountId,
         outflow: due,
         status: "Forecast",
-        category: "Debt"
+        category: "Debt",
+        mandatory: true
       }));
     }
   });
@@ -1128,9 +1185,11 @@ function monthlyEvents(month) {
         name: `${item.name || "Loan"} payment`,
         type: item.type === "OD" ? "OD Payment" : "Loan EMI",
         account: sourceName(item.sourceAccountId),
+        accountId: item.sourceAccountId,
         outflow: num(item.emi),
         status: "Forecast",
-        category: "Debt"
+        category: "Debt",
+        mandatory: true
       }));
     }
   });
@@ -1142,31 +1201,141 @@ function monthlyEvents(month) {
       name: item.name || "Manual item",
       type: item.type || "Adjustment",
       account: sourceName(item.sourceId),
+      accountId: item.sourceId,
       inflow: item.direction === "Inflow" ? num(item.amount) : 0,
       outflow: item.direction === "Outflow" ? num(item.amount) : 0,
       status: item.status || "Planned",
-      category: "Manual"
+      category: "Manual",
+      mandatory: ["Debt", "Savings"].includes(item.type)
     }));
   });
+
+  if (includeGeneratedCardPayments) {
+    events.push(...generatedCardPaymentsForMonth(month));
+  }
 
   return events.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
 }
 
-function monthSummary(month) {
-  const { realCash, liquidCash } = accountStats();
-  let running = realCash;
-  const events = monthlyEvents(month).map((event) => {
-    if (event.affectsCash) running += event.inflow - event.outflow;
-    return { ...event, balanceAfter: running };
+function generatedCardPaymentsForMonth(month) {
+  const generated = [];
+  const fromMonth = earliestReferenceMonth();
+  const months = monthRange(fromMonth, month);
+  months.forEach((sourceMonth) => {
+    monthlyEvents(sourceMonth, { includeGeneratedCardPayments: false })
+      .filter((event) => event.type === "Card Charge")
+      .forEach((charge) => {
+        const card = state.cards.find((item) => item.id === charge.accountId);
+        if (!card || !card.repaymentAccountId) return;
+        if (card.autoGenerateRepayments === false) return;
+        const dueDate = cardDueDateForCharge(charge.date, card);
+        if (!sameMonth(dueDate, month)) return;
+        generated.push(makeEvent({
+          date: dueDate,
+          name: `${card.name || "Credit card"} repayment for ${charge.name}`,
+          type: "Card Payment",
+          account: sourceName(card.repaymentAccountId),
+          accountId: card.repaymentAccountId,
+          outflow: charge.outflow,
+          status: "Forecast",
+          category: "Debt",
+          generated: true,
+          mandatory: true
+        }));
+      });
   });
-  const income = events.reduce((sum, item) => sum + item.inflow, 0);
-  const outflow = events.reduce((sum, item) => sum + item.outflow, 0);
-  const mandatory = events.filter((item) => ["Debt", "Card Payment", "Loan EMI", "OD Payment", "Subscription", "Savings", "Investment"].includes(item.type)).reduce((sum, item) => sum + item.outflow, 0);
+  return generated;
+}
+
+function investmentContributionMatches(item, month) {
+  const frequency = item.contributionFrequency || "Monthly";
+  const firstDate = item.firstContributionDate || item.startDate;
+  if (frequency === "One-time") return sameMonth(firstDate, month);
+  if (!isBetweenMonth(item, month, "startDate", "endDate")) return false;
+  if (firstDate && month < firstDate.slice(0, 7)) return false;
+  const diff = monthDiff(firstDate ? firstDate.slice(0, 7) : monthValue(), month);
+  if (diff < 0) return false;
+  if (frequency === "Monthly") return true;
+  if (frequency === "Quarterly") return diff % 3 === 0;
+  if (frequency === "Yearly") return diff % 12 === 0;
+  return false;
+}
+
+function cardDueDateForCharge(chargeDate, card) {
+  const chargeMonth = chargeDate.slice(0, 7);
+  const chargeDay = Number(chargeDate.slice(8, 10));
+  const statementDay = num(card.statementDay) || chargeDay;
+  const dueDay = num(card.dueDay) || statementDay;
+  const statementMonth = chargeDay <= statementDay ? chargeMonth : addMonths(chargeMonth, 1);
+  const dueMonth = dueDay <= statementDay ? addMonths(statementMonth, 1) : statementMonth;
+  return dateInMonth(dueMonth, dueDay);
+}
+
+function projectedCashAt(cutoffDate, includeCutoff = false) {
+  let running = accountStats().realCash;
+  const cutoffMonth = cutoffDate.slice(0, 7);
+  monthRange(earliestReferenceMonth(), cutoffMonth).forEach((month) => {
+    monthlyEvents(month).forEach((event) => {
+      if (!eventAffectsProjection(event)) return;
+      const isBefore = includeCutoff ? event.date <= cutoffDate : event.date < cutoffDate;
+      if (isBefore) running += event.inflow - event.outflow;
+    });
+  });
+  return running;
+}
+
+function monthSummary(month) {
+  const openingDate = dateInMonth(month, 1);
+  const closingDate = dateInMonth(month, monthBounds(month).days);
+  let running = projectedCashAt(openingDate, false);
+  let lowestCash = running;
+  let lowestCashDate = openingDate;
+  const events = monthlyEvents(month).map((event) => {
+    const hasCashImpact = eventAffectsProjection(event);
+    if (hasCashImpact) running += event.inflow - event.outflow;
+    if (hasCashImpact && running < lowestCash) {
+      lowestCash = running;
+      lowestCashDate = event.date;
+    }
+    return { ...event, hasCashImpact, balanceAfter: running };
+  });
+  const income = events.reduce((sum, item) => sum + (item.hasCashImpact ? item.inflow : 0), 0);
+  const outflow = events.reduce((sum, item) => sum + (item.hasCashImpact ? item.outflow : 0), 0);
+  const mandatoryEvents = events.filter((item) => item.hasCashImpact && isMandatoryEvent(item));
+  const mandatory = mandatoryEvents.reduce((sum, item) => sum + item.outflow, 0);
   const cardCharges = events.filter((item) => item.type === "Card Charge").reduce((sum, item) => sum + item.outflow, 0);
-  const assetMove = events.filter((item) => ["Savings", "Investment", "Asset Maturity"].includes(item.type)).reduce((sum, item) => sum + item.inflow - item.outflow, 0);
+  const assetMove = events.filter((item) => item.hasCashImpact && ["Savings", "Investment", "Asset Maturity"].includes(item.type)).reduce((sum, item) => sum + item.inflow - item.outflow, 0);
   const liabilityMove = cardCharges - events.filter((item) => ["Card Payment", "Loan EMI", "OD Payment"].includes(item.type)).reduce((sum, item) => sum + item.outflow, 0);
-  const safeToSpend = liquidCash - mandatory - num(state.settings.buffer);
-  return { events, opening: realCash, income, outflow, mandatory, closing: running, cardCharges, assetMove, liabilityMove, safeToSpend };
+  const nextCashInflow = events.find((item) => item.hasCashImpact && item.inflow > 0);
+  const pressureWindowEnd = nextCashInflow?.date || closingDate;
+  const pressureBeforeNextInflow = events
+    .filter((item) => item.hasCashImpact && isMandatoryEvent(item) && item.outflow > 0 && item.date <= pressureWindowEnd)
+    .reduce((sum, item) => sum + item.outflow, 0);
+  const pressureGap = Math.max(0, num(state.settings.buffer) - lowestCash);
+  return {
+    events,
+    opening: projectedCashAt(openingDate, false),
+    income,
+    outflow,
+    mandatory,
+    closing: running,
+    cardCharges,
+    assetMove,
+    liabilityMove,
+    lowestCash,
+    lowestCashDate,
+    pressureBeforeNextInflow,
+    pressureGap,
+    buffer: num(state.settings.buffer)
+  };
+}
+
+function isMandatoryEvent(event) {
+  if (event.mandatory !== null && event.mandatory !== undefined) return Boolean(event.mandatory);
+  if (event.type === "Expense") {
+    return event.category === "EMI" || event.category === "Living";
+  }
+  return ["Debt", "Card Payment", "Loan EMI", "OD Payment", "Subscription", "Savings", "Investment"].includes(event.type);
 }
 
 function renderTabs() {
@@ -1191,13 +1360,14 @@ function renderDashboard() {
   text("#realCash", rupee(accounts.realCash));
   text("#availableCash", rupee(accounts.availableCash));
   text("#borrowedAccess", rupee(accounts.unusedOd + state.cards.reduce((sum, item) => sum + Math.max(0, num(item.creditLimit) - num(item.usedLimit)), 0)));
-  text("#safeToSpend", rupee(summary.safeToSpend));
+  text("#projectedMonthEnd", rupee(summary.closing));
   text("#lockedSavings", rupee(assets.locked));
   text("#upcomingBills", rupee(summary.mandatory));
   text("#netWorth", rupee(netWorth));
-  text("#monthSummary", `${month} has ${rupee(summary.income)} expected inflow and ${rupee(summary.outflow)} expected outflow from your current setup.`);
+  text("#monthSummary", `${month} opens at ${rupee(summary.opening)}, reaches a lowest cash point of ${rupee(summary.lowestCash)} on ${summary.lowestCashDate}, and closes at ${rupee(summary.closing)}.`);
 
-  const pressure = summary.income > 0 ? Math.min(100, Math.round((summary.outflow / summary.income) * 100)) : summary.outflow > 0 ? 100 : 0;
+  const availableForMonth = Math.max(1, Math.abs(summary.opening) + summary.income);
+  const pressure = summary.pressureGap > 0 ? 100 : Math.min(100, Math.round((summary.mandatory / availableForMonth) * 100));
   const pressureBar = document.querySelector("#pressureBar");
   pressureBar.style.width = `${pressure}%`;
   pressureBar.style.background = pressure > 90 ? "var(--red)" : pressure > 65 ? "var(--amber)" : "var(--green)";
@@ -1211,7 +1381,8 @@ function renderDashboard() {
   ].map(([label, value]) => `<dt>${label}</dt><dd>${rupee(value)}</dd>`).join("");
 
   const warnings = [];
-  if (summary.safeToSpend < 0) warnings.push("Safe to Spend is negative after mandatory outflows and your buffer.");
+  if (summary.pressureGap > 0) warnings.push(`Lowest projected cash falls below your cushion by ${rupee(summary.pressureGap)}.`);
+  if (summary.pressureBeforeNextInflow > 0) warnings.push(`${rupee(summary.pressureBeforeNextInflow)} of mandatory cash outflows are due before the next cash inflow in this month.`);
   if (accounts.availableCash > accounts.realCash) warnings.push("Available Cash includes borrowed access from OD or credit.");
   if (summary.cardCharges > 0) warnings.push("Credit card purchases increase future repayment pressure even when cash does not move today.");
   if (state.fds.some((item) => item.maturityDate && daysUntil(item.maturityDate) <= 30 && daysUntil(item.maturityDate) >= 0)) warnings.push("At least one FD matures in the next 30 days.");
@@ -1246,7 +1417,7 @@ function renderMonthly() {
         <td>${escapeHtml(event.account)}</td>
         <td class="amount">${event.inflow ? rupee(event.inflow) : ""}</td>
         <td class="amount">${event.outflow ? rupee(event.outflow) : ""}${event.affectsCash ? "" : " <span class=\"pill warning\">No cash move</span>"}</td>
-        <td class="amount">${event.affectsCash ? rupee(event.balanceAfter) : "Card / credit"}</td>
+        <td class="amount">${event.hasCashImpact ? rupee(event.balanceAfter) : event.affectsCash ? "Already in balance" : "Card / credit"}</td>
         <td><span class="pill ${event.status === "Paid" || event.status === "Received" ? "actual" : event.status === "Forecast" ? "" : "warning"}">${escapeHtml(event.status)}</span></td>
       </tr>
     `).join("");
@@ -1337,7 +1508,7 @@ function openEditor(sectionKey, itemId = null) {
 }
 
 function editorField(field, item) {
-  const value = item[field.key] ?? "";
+  const value = item[field.key] ?? defaultFieldValue(field);
   const full = field.type === "textarea" ? " full" : "";
   if (field.type === "select") {
     return `<label class="${full}">${field.label}<select data-field="${field.key}">${field.options.map((option) => `<option ${option === value ? "selected" : ""}>${option}</option>`).join("")}</select></label>`;
@@ -1353,6 +1524,12 @@ function editorField(field, item) {
     return `<label class="full">${field.label}<textarea data-field="${field.key}">${escapeHtml(value)}</textarea></label>`;
   }
   return `<label>${field.label}<input data-field="${field.key}" type="${field.type}" value="${escapeHtml(String(value))}" ${field.type === "number" ? "step=\"1\"" : ""}></label>`;
+}
+
+function defaultFieldValue(field) {
+  if (field.type === "checkbox" && ["active", "autoGenerateRepayments"].includes(field.key)) return true;
+  if (field.key === "contributionFrequency") return "Monthly";
+  return "";
 }
 
 function saveEditor() {
