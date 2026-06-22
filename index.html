@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Monthly Finance System</title>
+    <meta name="description" content="A static monthly personal finance forecasting system with editable accounts, deposits, investments, cards, subscriptions, goals, and Google Sheets sync.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">Personal finance system</p>
+          <h1>Monthly money map</h1>
+        </div>
+        <div class="header-actions">
+          <input id="monthPicker" type="month" aria-label="Select month">
+          <button id="exportData" class="icon-button" type="button" title="Export backup" aria-label="Export backup">↓</button>
+          <label class="icon-button import-button" title="Import backup" aria-label="Import backup">
+            ↑
+            <input id="importData" type="file" accept="application/json">
+          </label>
+          <button id="saveSheet" class="primary" type="button">Save to Sheet</button>
+        </div>
+      </header>
+
+      <nav id="tabs" class="tabs" aria-label="App sections"></nav>
+
+      <section id="dashboardView" class="view active" data-view="dashboard">
+        <section class="metric-grid" aria-label="Financial summary">
+          <article class="metric">
+            <span>Real Cash</span>
+            <strong id="realCash">₹0</strong>
+            <small>Actual account balances, including negative accounts</small>
+          </article>
+          <article class="metric">
+            <span>Available Cash</span>
+            <strong id="availableCash">₹0</strong>
+            <small>Real cash plus unused OD access</small>
+          </article>
+          <article class="metric warning">
+            <span>Borrowed Access</span>
+            <strong id="borrowedAccess">₹0</strong>
+            <small>OD and credit access, not your money</small>
+          </article>
+          <article class="metric good">
+            <span>Safe to Spend</span>
+            <strong id="safeToSpend">₹0</strong>
+            <small>Liquid cash minus near-term mandatory pressure</small>
+          </article>
+          <article class="metric">
+            <span>Locked Savings</span>
+            <strong id="lockedSavings">₹0</strong>
+            <small>FDs, RDs, and investments</small>
+          </article>
+          <article class="metric danger">
+            <span>Upcoming Bills</span>
+            <strong id="upcomingBills">₹0</strong>
+            <small>Mandatory outflows this selected month</small>
+          </article>
+        </section>
+
+        <section class="grid-two">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>This Month's Pressure</h2>
+                <p id="monthSummary">Start by adding accounts and recurring details.</p>
+              </div>
+            </div>
+            <div class="pressure-bar"><div id="pressureBar"></div></div>
+            <ul id="warnings" class="warning-list"></ul>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Net Worth Estimate</h2>
+                <p>Simple estimate from entered assets minus liabilities.</p>
+              </div>
+            </div>
+            <div class="net-worth" id="netWorth">₹0</div>
+            <dl class="mini-breakdown" id="netWorthBreakdown"></dl>
+          </article>
+        </section>
+      </section>
+
+      <section id="monthlyView" class="view" data-view="monthly">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Monthly Tracker</h2>
+              <p>Generated from your setup tabs. Add manual items for one-off changes.</p>
+            </div>
+            <button class="secondary" data-add="manualEvents" type="button">Add Manual Item</button>
+          </div>
+          <div class="month-cards">
+            <article><span>Opening Cash</span><strong id="openingCash">₹0</strong></article>
+            <article><span>Expected Income</span><strong id="monthIncome">₹0</strong></article>
+            <article><span>Expected Outflow</span><strong id="monthOutflow">₹0</strong></article>
+            <article><span>Closing Cash</span><strong id="closingCash">₹0</strong></article>
+            <article><span>OD / Card Change</span><strong id="liabilityMove">₹0</strong></article>
+            <article><span>Assets Moving</span><strong id="assetMove">₹0</strong></article>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Event</th>
+                  <th>Type</th>
+                  <th>Account / Card</th>
+                  <th>Inflow</th>
+                  <th>Outflow</th>
+                  <th>Balance After</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="monthlyLedger"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="setupView" class="view" data-view="setup">
+        <section class="setup-layout">
+          <aside class="setup-nav" id="setupNav" aria-label="Setup sections"></aside>
+          <section class="panel setup-panel">
+            <div class="panel-head">
+              <div>
+                <h2 id="setupTitle">Accounts</h2>
+                <p id="setupHint">Add each savings, current, salary, or OD-linked account.</p>
+              </div>
+              <button id="addSetupItem" class="secondary" type="button">Add</button>
+            </div>
+            <div id="emptyState" class="empty-state">No items yet. Add your first one when you're ready.</div>
+            <div id="setupCards" class="setup-cards"></div>
+          </section>
+        </section>
+      </section>
+
+      <section id="settingsView" class="view" data-view="settings">
+        <section class="panel settings-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Settings</h2>
+              <p>Local-first by default. Paste an Apps Script URL when you want Google Sheets saves.</p>
+            </div>
+          </div>
+          <label>
+            Minimum cash buffer for Safe to Spend
+            <input id="bufferInput" type="number" step="1">
+          </label>
+          <label>
+            Google Apps Script URL
+            <input id="sheetUrlInput" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+          </label>
+          <p id="syncStatus" class="sync-status">Not connected yet.</p>
+          <button id="resetAll" class="danger-button" type="button">Reset All Data</button>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="editor">
+      <form method="dialog" class="editor-card">
+        <div class="panel-head">
+          <div>
+            <h2 id="editorTitle">Add Item</h2>
+            <p id="editorHint">Fill only what you know. You can edit it later.</p>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="editorFields" class="editor-fields"></div>
+        <div class="editor-actions">
+          <button id="deleteItem" class="ghost danger-text" type="button">Delete</button>
+          <span></span>
+          <button class="ghost" value="cancel" type="submit">Cancel</button>
+          <button id="saveItem" class="primary" type="button">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
