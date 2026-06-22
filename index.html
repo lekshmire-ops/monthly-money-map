@@ -1,13 +1,13 @@
-<!DOCTYPE html>
-<!-- saved from url=(0129)file:///Users/lekshmireghunath/Documents/Codex/2026-06-22/files-mentioned-by-the-user-claude/outputs/financial-tracker/index.html -->
-<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Monthly Finance System</title>
     <meta name="description" content="A static monthly personal finance forecasting system with editable accounts, deposits, investments, cards, subscriptions, goals, and Google Sheets sync.">
-    <link rel="preconnect" href="https://fonts.googleapis.com/">
-    <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin="">
-    <link href="./Monthly Finance System_files/css2" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
 :root {
   color-scheme: dark;
@@ -121,6 +121,11 @@ textarea {
   min-height: 82px;
   padding: 10px;
   resize: vertical;
+}
+
+select[multiple] {
+  min-height: 124px;
+  padding: 8px;
 }
 
 input:focus,
@@ -309,6 +314,72 @@ label {
   gap: 9px;
   margin: 16px 0 0;
   padding-left: 19px;
+}
+
+.goal-panel {
+  min-height: 360px;
+}
+
+.goal-tracker {
+  display: grid;
+  gap: 12px;
+}
+
+.empty-goals {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  text-align: center;
+  padding: 18px;
+}
+
+.goal-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-3);
+}
+
+.goal-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.goal-card h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.goal-card header strong {
+  font-size: 1.65rem;
+}
+
+.goal-bar {
+  height: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #080d12;
+}
+
+.goal-bar div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), var(--green));
+}
+
+.goal-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 14px;
+  color: var(--muted);
+  font-size: 0.84rem;
 }
 
 .net-worth {
@@ -574,7 +645,8 @@ dialog::backdrop {
   .metric-grid,
   .month-cards,
   .setup-cards,
-  .editor-fields {
+  .editor-fields,
+  .goal-values {
     grid-template-columns: 1fr;
   }
 
@@ -613,7 +685,7 @@ dialog::backdrop {
         </div>
       </header>
 
-      <nav id="tabs" class="tabs" aria-label="App sections"><button class="active" data-tab="dashboard" type="button">Dashboard</button><button class="" data-tab="monthly" type="button">Monthly Tracker</button><button class="" data-tab="setup" type="button">Setup</button><button class="" data-tab="settings" type="button">Settings</button></nav>
+      <nav id="tabs" class="tabs" aria-label="App sections"></nav>
 
       <section id="dashboardView" class="view active" data-view="dashboard">
         <section class="metric-grid" aria-label="Financial summary">
@@ -650,15 +722,14 @@ dialog::backdrop {
         </section>
 
         <section class="grid-two">
-          <article class="panel">
+          <article class="panel goal-panel">
             <div class="panel-head">
               <div>
-                <h2>This Month's Pressure</h2>
-                <p id="monthSummary">2026-06 opens at ₹0, reaches a lowest cash point of ₹0 on 2026-06-01, and closes at ₹0.</p>
+                <h2>Goal Tracker</h2>
+                <p id="goalSummary">Connect goals to accounts, FDs, RDs, investments, cards, loans, or ODs.</p>
               </div>
             </div>
-            <div class="pressure-bar"><div id="pressureBar" style="width: 0%; background: var(--green);"></div></div>
-            <ul id="warnings" class="warning-list"><li>No warnings yet. Add setup data to make this useful.</li></ul>
+            <div id="goalTracker" class="goal-tracker"></div>
           </article>
           <article class="panel">
             <div class="panel-head">
@@ -668,7 +739,7 @@ dialog::backdrop {
               </div>
             </div>
             <div class="net-worth" id="netWorth">₹0</div>
-            <dl class="mini-breakdown" id="netWorthBreakdown"><dt>Accounts</dt><dd>₹0</dd><dt>FDs</dt><dd>₹0</dd><dt>RDs</dt><dd>₹0</dd><dt>Investments</dt><dd>₹0</dd><dt>OD/Card/Loans</dt><dd>₹0</dd></dl>
+            <dl class="mini-breakdown" id="netWorthBreakdown"></dl>
           </article>
         </section>
       </section>
@@ -704,7 +775,7 @@ dialog::backdrop {
                   <th>Status</th>
                 </tr>
               </thead>
-              <tbody id="monthlyLedger"><tr><td colspan="8">No monthly items yet. Add setup data or a manual item.</td></tr></tbody>
+              <tbody id="monthlyLedger"></tbody>
             </table>
           </div>
         </section>
@@ -712,16 +783,16 @@ dialog::backdrop {
 
       <section id="setupView" class="view" data-view="setup">
         <section class="setup-layout">
-          <aside class="setup-nav" id="setupNav" aria-label="Setup sections"><button class="active" data-setup="accounts" type="button">Accounts</button><button class="" data-setup="income" type="button">Income</button><button class="" data-setup="expenses" type="button">Expenses</button><button class="" data-setup="fds" type="button">FDs</button><button class="" data-setup="rds" type="button">RDs</button><button class="" data-setup="investments" type="button">Investments</button><button class="" data-setup="cards" type="button">Credit Cards</button><button class="" data-setup="loans" type="button">Loans / ODs</button><button class="" data-setup="subscriptions" type="button">Subscriptions</button><button class="" data-setup="goals" type="button">Goals</button><button class="" data-setup="manualEvents" type="button">Manual Items</button></aside>
+          <aside class="setup-nav" id="setupNav" aria-label="Setup sections"></aside>
           <section class="panel setup-panel">
             <div class="panel-head">
               <div>
                 <h2 id="setupTitle">Accounts</h2>
-                <p id="setupHint">Savings, current, salary, and OD-linked accounts.</p>
+                <p id="setupHint">Add each savings, current, salary, or OD-linked account.</p>
               </div>
-              <button id="addSetupItem" class="secondary" type="button">Add Accounts</button>
+              <button id="addSetupItem" class="secondary" type="button">Add</button>
             </div>
-            <div id="emptyState" class="empty-state active">No items yet. Add your first one when you're ready.</div>
+            <div id="emptyState" class="empty-state">No items yet. Add your first one when you're ready.</div>
             <div id="setupCards" class="setup-cards"></div>
           </section>
         </section>
@@ -743,7 +814,7 @@ dialog::backdrop {
             Google Apps Script URL
             <input id="sheetUrlInput" type="url" placeholder="https://script.google.com/macros/s/.../exec">
           </label>
-          <p id="syncStatus" class="sync-status">Connected URL saved. Ready to sync.</p>
+          <p id="syncStatus" class="sync-status">Not connected yet.</p>
           <button id="resetAll" class="danger-button" type="button">Reset All Data</button>
         </section>
       </section>
@@ -832,8 +903,11 @@ const setupSections = [
     b("active", "Active?"), d("startDate", "Start Date"), d("endDate", "End Date"), t("notes", "Notes")
   ] },
   { key: "goals", label: "Goals", hint: "Wedding, emergency, travel, OD reduction, or other financial goals.", title: "name", fields: [
-    f("name", "Goal Name"), n("targetAmount", "Target Amount"), d("targetDate", "Target Date"), n("currentSaved", "Current Saved"),
-    f("linkedItems", "Linked Accounts/FDs/RDs"), s("priority", "Priority", ["High", "Medium", "Low"]), t("notes", "Notes")
+    f("name", "Goal Name"), s("goalType", "Goal Type", ["Savings Goal", "Debt Reduction", "Net Goal"]), n("targetAmount", "Target Amount"),
+    d("targetDate", "Target Date"), n("currentSaved", "Manual Saved / Progress"),
+    mr("linkedAccountIds", "Linked Accounts", "accounts"), mr("linkedFdIds", "Linked FDs", "fds"), mr("linkedRdIds", "Linked RDs", "rds"),
+    mr("linkedInvestmentIds", "Linked Investments", "investments"), mr("linkedLoanIds", "Linked Loans / ODs", "loans"), mr("linkedCardIds", "Linked Credit Cards", "cards"),
+    s("priority", "Priority", ["High", "Medium", "Low"]), t("notes", "Notes")
   ] },
   { key: "manualEvents", label: "Manual Items", hint: "One-off overrides or events that should appear in a monthly ledger.", title: "name", fields: [
     f("name", "Event Name"), d("date", "Date"), s("type", "Type", ["Income", "Expense", "Debt", "Savings", "Transfer", "Adjustment"]),
@@ -867,6 +941,7 @@ function b(key, label) { return { key, label, type: "checkbox" }; }
 function t(key, label) { return { key, label, type: "textarea" }; }
 function s(key, label, options) { return { key, label, type: "select", options }; }
 function r(key, label, source) { return { key, label, type: "reference", source }; }
+function mr(key, label, source) { return { key, label, type: "multiReference", source }; }
 
 function loadState() {
   try {
@@ -983,6 +1058,15 @@ function sourceName(sourceId) {
 function referenceOptions(source) {
   if (source === "paymentSources") return [...state.accounts, ...state.cards].map((item) => ({ value: item.id, label: item.name || "Unnamed" }));
   return (state[source] || []).map((item) => ({ value: item.id, label: item.name || "Unnamed" }));
+}
+
+function labelForIds(ids, source) {
+  const selected = Array.isArray(ids) ? ids : [];
+  const options = referenceOptions(source);
+  return selected
+    .map((id) => options.find((option) => option.value === id)?.label)
+    .filter(Boolean)
+    .join(", ");
 }
 
 function currentMonth() {
@@ -1356,6 +1440,7 @@ function renderDashboard() {
   const liabilities = liabilityStats();
   const summary = monthSummary(month);
   const netWorth = accounts.realCash + assets.locked - liabilities.total;
+  const goals = goalStats();
 
   text("#realCash", rupee(accounts.realCash));
   text("#availableCash", rupee(accounts.availableCash));
@@ -1364,13 +1449,8 @@ function renderDashboard() {
   text("#lockedSavings", rupee(assets.locked));
   text("#upcomingBills", rupee(summary.mandatory));
   text("#netWorth", rupee(netWorth));
-  text("#monthSummary", `${month} opens at ${rupee(summary.opening)}, reaches a lowest cash point of ${rupee(summary.lowestCash)} on ${summary.lowestCashDate}, and closes at ${rupee(summary.closing)}.`);
-
-  const availableForMonth = Math.max(1, Math.abs(summary.opening) + summary.income);
-  const pressure = summary.pressureGap > 0 ? 100 : Math.min(100, Math.round((summary.mandatory / availableForMonth) * 100));
-  const pressureBar = document.querySelector("#pressureBar");
-  pressureBar.style.width = `${pressure}%`;
-  pressureBar.style.background = pressure > 90 ? "var(--red)" : pressure > 65 ? "var(--amber)" : "var(--green)";
+  text("#goalSummary", goals.length ? `${goals.length} goal${goals.length === 1 ? "" : "s"} linked to your financial setup.` : "No goals yet. Add a goal and link it to accounts, FDs, RDs, investments, loans, ODs, or cards.");
+  renderGoalTracker(goals);
 
   document.querySelector("#netWorthBreakdown").innerHTML = [
     ["Accounts", accounts.realCash],
@@ -1380,14 +1460,85 @@ function renderDashboard() {
     ["OD/Card/Loans", -liabilities.total]
   ].map(([label, value]) => `<dt>${label}</dt><dd>${rupee(value)}</dd>`).join("");
 
-  const warnings = [];
-  if (summary.pressureGap > 0) warnings.push(`Lowest projected cash falls below your cushion by ${rupee(summary.pressureGap)}.`);
-  if (summary.pressureBeforeNextInflow > 0) warnings.push(`${rupee(summary.pressureBeforeNextInflow)} of mandatory cash outflows are due before the next cash inflow in this month.`);
-  if (accounts.availableCash > accounts.realCash) warnings.push("Available Cash includes borrowed access from OD or credit.");
-  if (summary.cardCharges > 0) warnings.push("Credit card purchases increase future repayment pressure even when cash does not move today.");
-  if (state.fds.some((item) => item.maturityDate && daysUntil(item.maturityDate) <= 30 && daysUntil(item.maturityDate) >= 0)) warnings.push("At least one FD matures in the next 30 days.");
-  if (state.rds.some((item) => item.endDate && daysUntil(item.endDate) <= 30 && daysUntil(item.endDate) >= 0)) warnings.push("At least one RD matures in the next 30 days.");
-  document.querySelector("#warnings").innerHTML = warnings.length ? warnings.map((item) => `<li>${item}</li>`).join("") : "<li>No warnings yet. Add setup data to make this useful.</li>";
+}
+
+function goalStats() {
+  return state.goals.map((goal) => {
+    const target = num(goal.targetAmount);
+    const manual = num(goal.currentSaved);
+    const positiveValue =
+      sumByIds(goal.linkedAccountIds, state.accounts, (item) => Math.max(0, num(item.actualBalance))) +
+      sumByIds(goal.linkedFdIds, state.fds, (item) => num(item.currentValue || item.principal)) +
+      sumByIds(goal.linkedRdIds, state.rds, (item) => num(item.currentValue)) +
+      sumByIds(goal.linkedInvestmentIds, state.investments, (item) => num(item.currentValue));
+    const linkedDebt =
+      sumByIds(goal.linkedLoanIds, state.loans, (item) => num(item.outstanding)) +
+      sumByIds(goal.linkedCardIds, state.cards, (item) => num(item.usedLimit));
+    const linkedOd =
+      sumByIds(goal.linkedAccountIds, state.accounts, (item) => num(item.odUsed)) +
+      sumByIds(goal.linkedFdIds, state.fds, (item) => num(item.odUsed));
+    const totalDebt = linkedDebt + linkedOd;
+    const type = goal.goalType || "Savings Goal";
+    const progress = type === "Debt Reduction"
+      ? manual + Math.max(0, target - totalDebt)
+      : type === "Net Goal"
+        ? manual + positiveValue - totalDebt
+        : manual + positiveValue;
+    const percent = target > 0 ? Math.max(0, Math.min(100, Math.round((progress / target) * 100))) : 0;
+    const remaining = Math.max(0, target - progress);
+    const monthsLeft = monthsUntil(goal.targetDate);
+    const monthlyRequired = monthsLeft > 0 ? remaining / monthsLeft : remaining;
+    return { ...goal, target, manual, positiveValue, totalDebt, progress, percent, remaining, monthsLeft, monthlyRequired, type };
+  }).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || b.percent - a.percent);
+}
+
+function sumByIds(ids, collection, picker) {
+  const selected = Array.isArray(ids) ? ids : [];
+  return selected.reduce((sum, id) => {
+    const item = collection.find((entry) => entry.id === id);
+    return sum + (item ? picker(item) : 0);
+  }, 0);
+}
+
+function monthsUntil(dateString) {
+  if (!dateString) return 0;
+  const targetMonth = dateString.slice(0, 7);
+  return Math.max(0, monthDiff(monthValue(), targetMonth) + 1);
+}
+
+function priorityRank(priority) {
+  return { High: 0, Medium: 1, Low: 2 }[priority] ?? 3;
+}
+
+function renderGoalTracker(goals) {
+  const container = document.querySelector("#goalTracker");
+  if (!goals.length) {
+    container.innerHTML = `<div class="empty-goals">Add goals in Setup, then link them to the assets or debts funding them.</div>`;
+    return;
+  }
+  container.innerHTML = goals.map((goal) => {
+    const debtLine = goal.totalDebt > 0 ? `<span>Linked debt: ${rupee(goal.totalDebt)}</span>` : "";
+    const monthlyLine = goal.targetDate ? `<span>Needed monthly: ${rupee(goal.monthlyRequired)}</span>` : "";
+    return `
+      <article class="goal-card">
+        <header>
+          <div>
+            <h3>${escapeHtml(goal.name || "Unnamed goal")}</h3>
+            <span class="pill ${goal.priority === "High" ? "danger" : goal.priority === "Medium" ? "warning" : ""}">${escapeHtml(goal.priority || "Priority")}</span>
+          </div>
+          <strong>${goal.percent}%</strong>
+        </header>
+        <div class="goal-bar"><div style="width:${goal.percent}%"></div></div>
+        <div class="goal-values">
+          <span>Progress: ${rupee(goal.progress)}</span>
+          <span>Target: ${rupee(goal.target)}</span>
+          <span>Remaining: ${rupee(goal.remaining)}</span>
+          ${monthlyLine}
+          ${debtLine}
+        </div>
+      </article>
+    `;
+  }).join("");
 }
 
 function daysUntil(dateString) {
@@ -1454,8 +1605,16 @@ function cardFor(section, item) {
     .slice(0, 5)
     .map((field) => {
       const value = item[field.key];
-      if (value === "" || value == null || value === false) return "";
-      const shown = field.type === "number" ? rupee(value) : field.type === "checkbox" ? "Yes" : field.type === "reference" ? sourceName(value) : value;
+      if (value === "" || value == null || value === false || (Array.isArray(value) && value.length === 0)) return "";
+      const shown = field.type === "number"
+        ? rupee(value)
+        : field.type === "checkbox"
+          ? "Yes"
+          : field.type === "reference"
+            ? sourceName(value)
+            : field.type === "multiReference"
+              ? labelForIds(value, field.source)
+              : value;
       return `<div><span>${field.label}</span><strong>${escapeHtml(String(shown))}</strong></div>`;
     })
     .filter(Boolean)
@@ -1517,6 +1676,11 @@ function editorField(field, item) {
     const options = referenceOptions(field.source);
     return `<label class="${full}">${field.label}<select data-field="${field.key}"><option value=""></option>${options.map((option) => `<option value="${option.value}" ${option.value === value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>`;
   }
+  if (field.type === "multiReference") {
+    const values = Array.isArray(value) ? value : [];
+    const options = referenceOptions(field.source);
+    return `<label class="${full}">${field.label}<select multiple data-field="${field.key}">${options.map((option) => `<option value="${option.value}" ${values.includes(option.value) ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>`;
+  }
   if (field.type === "checkbox") {
     return `<label>${field.label}<select data-field="${field.key}"><option value="false" ${!value ? "selected" : ""}>No</option><option value="true" ${value ? "selected" : ""}>Yes</option></select></label>`;
   }
@@ -1536,7 +1700,13 @@ function saveEditor() {
   const { sectionKey, itemId, item } = editing;
   document.querySelectorAll("#editorFields [data-field]").forEach((input) => {
     const field = sectionMap[sectionKey].fields.find((entry) => entry.key === input.dataset.field);
-    item[input.dataset.field] = field.type === "number" ? num(input.value) : field.type === "checkbox" ? input.value === "true" : input.value.trim();
+    item[input.dataset.field] = field.type === "number"
+      ? num(input.value)
+      : field.type === "checkbox"
+        ? input.value === "true"
+        : field.type === "multiReference"
+          ? [...input.selectedOptions].map((option) => option.value)
+          : input.value.trim();
   });
   if (itemId) {
     const index = state[sectionKey].findIndex((entry) => entry.id === itemId);
@@ -1648,6 +1818,5 @@ document.querySelector("#resetAll").addEventListener("click", () => {
 render();
 
     </script>
-  
-
-</body></html>
+  </body>
+</html>
