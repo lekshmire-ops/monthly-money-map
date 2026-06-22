@@ -562,6 +562,49 @@ dialog::backdrop {
   grid-column: 1 / -1;
 }
 
+.link-checklist {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-3);
+}
+
+.link-checklist legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.link-choice {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  color: var(--text);
+  background: #080d12;
+}
+
+.link-choice input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--green);
+}
+
+.link-empty {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .editor-actions {
   display: grid;
   grid-template-columns: auto 1fr auto auto;
@@ -939,7 +982,7 @@ function b(key, label) { return { key, label, type: "checkbox" }; }
 function t(key, label) { return { key, label, type: "textarea" }; }
 function s(key, label, options) { return { key, label, type: "select", options }; }
 function r(key, label, source) { return { key, label, type: "reference", source }; }
-function mr(key, label, source) { return { key, label, type: "multiReference", source }; }
+function mr(key, label, source) { return { key, label, type: "linkChecklist", source }; }
 
 function loadState() {
   try {
@@ -1466,12 +1509,14 @@ function goalStats() {
     const manual = num(goal.currentSaved);
     const fdValue = sumByIds(goal.linkedFdIds, state.fds, (item) => num(item.currentValue || item.principal));
     const rdValue = sumByIds(goal.linkedRdIds, state.rds, (item) => num(item.currentValue));
+    const fdNames = labelForIds(goal.linkedFdIds, "fds");
+    const rdNames = labelForIds(goal.linkedRdIds, "rds");
     const progress = manual + fdValue + rdValue;
     const percent = target > 0 ? Math.max(0, Math.min(100, Math.round((progress / target) * 100))) : 0;
     const remaining = Math.max(0, target - progress);
     const monthsLeft = monthsUntil(goal.targetDate);
     const monthlyRequired = monthsLeft > 0 ? remaining / monthsLeft : remaining;
-    return { ...goal, target, manual, fdValue, rdValue, progress, percent, remaining, monthsLeft, monthlyRequired };
+    return { ...goal, target, manual, fdValue, rdValue, fdNames, rdNames, progress, percent, remaining, monthsLeft, monthlyRequired };
   }).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || b.percent - a.percent);
 }
 
@@ -1502,6 +1547,9 @@ function renderGoalTracker(goals) {
   container.innerHTML = goals.map((goal) => {
     const fdLine = goal.fdValue > 0 ? `<span>FDs linked: ${rupee(goal.fdValue)}</span>` : "";
     const rdLine = goal.rdValue > 0 ? `<span>RDs linked: ${rupee(goal.rdValue)}</span>` : "";
+    const fdNames = goal.fdNames ? `<span>FD names: ${escapeHtml(goal.fdNames)}</span>` : "";
+    const rdNames = goal.rdNames ? `<span>RD names: ${escapeHtml(goal.rdNames)}</span>` : "";
+    const emptyLinkLine = !goal.fdValue && !goal.rdValue ? `<span>No FD/RD selected yet</span>` : "";
     const manualLine = goal.manual > 0 ? `<span>Manual saved: ${rupee(goal.manual)}</span>` : "";
     const monthlyLine = goal.targetDate ? `<span>Needed monthly: ${rupee(goal.monthlyRequired)}</span>` : "";
     return `
@@ -1521,6 +1569,9 @@ function renderGoalTracker(goals) {
           ${monthlyLine}
           ${fdLine}
           ${rdLine}
+          ${fdNames}
+          ${rdNames}
+          ${emptyLinkLine}
           ${manualLine}
         </div>
       </article>
@@ -1599,7 +1650,7 @@ function cardFor(section, item) {
           ? "Yes"
           : field.type === "reference"
             ? sourceName(value)
-            : field.type === "multiReference"
+            : field.type === "linkChecklist"
               ? labelForIds(value, field.source)
               : value;
       return `<div><span>${field.label}</span><strong>${escapeHtml(String(shown))}</strong></div>`;
@@ -1663,10 +1714,18 @@ function editorField(field, item) {
     const options = referenceOptions(field.source);
     return `<label class="${full}">${field.label}<select data-field="${field.key}"><option value=""></option>${options.map((option) => `<option value="${option.value}" ${option.value === value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>`;
   }
-  if (field.type === "multiReference") {
+  if (field.type === "linkChecklist") {
     const values = Array.isArray(value) ? value : [];
     const options = referenceOptions(field.source);
-    return `<label class="${full}">${field.label}<select multiple data-field="${field.key}">${options.map((option) => `<option value="${option.value}" ${values.includes(option.value) ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>`;
+    const choices = options.length
+      ? options.map((option) => `
+        <label class="link-choice">
+          <input type="checkbox" data-link-field="${field.key}" value="${option.value}" ${values.includes(option.value) ? "checked" : ""}>
+          <span>${escapeHtml(option.label)}</span>
+        </label>
+      `).join("")
+      : `<div class="link-empty">Add ${field.source.toUpperCase()} first, then return here to link them.</div>`;
+    return `<fieldset class="link-checklist full"><legend>${field.label}</legend>${choices}</fieldset>`;
   }
   if (field.type === "checkbox") {
     return `<label>${field.label}<select data-field="${field.key}"><option value="false" ${!value ? "selected" : ""}>No</option><option value="true" ${value ? "selected" : ""}>Yes</option></select></label>`;
@@ -1691,9 +1750,13 @@ function saveEditor() {
       ? num(input.value)
       : field.type === "checkbox"
         ? input.value === "true"
-        : field.type === "multiReference"
-          ? [...input.selectedOptions].map((option) => option.value)
-          : input.value.trim();
+        : input.value.trim();
+  });
+  document.querySelectorAll("#editorFields [data-link-field]").forEach((input) => {
+    item[input.dataset.linkField] = [];
+  });
+  document.querySelectorAll("#editorFields [data-link-field]:checked").forEach((input) => {
+    item[input.dataset.linkField].push(input.value);
   });
   if (itemId) {
     const index = state[sectionKey].findIndex((entry) => entry.id === itemId);
